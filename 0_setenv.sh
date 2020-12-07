@@ -72,6 +72,8 @@ if [ $# -eq 1 ]; then
         fi
 fi
 
+echo Using $K_MODEL
+
 # training parameters
 export EPOCHS=160
 export BATCHSIZE=150
