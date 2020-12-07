@@ -132,11 +132,10 @@ Correct: 703 Wrong: 27 Accuracy:0.9628
  
 ## SW-evaluation
 A jupyter notebook [cpu-evaluation.ipynb/](cpu-evaluation.ipynb) is provided to evaluate the model on several classification metrics in SW. Also, you can visualize the regions of attention of the X-ray images. 
-First source Vitis AI environment and install jupyter:
+First source Vitis AI environment:
   ```bash
 source ./0_setenv.sh  
-sudo pip install notebook
-  ```
+ ```
 For the visualization package only, you will need to install a higher TF-version and tf_keras_vis package by running the following command:
   ```bash
 pip install tensorflow==2.0.2 tf_keras_vis 
