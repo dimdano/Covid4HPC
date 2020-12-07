@@ -1,0 +1,1 @@
+**Download COVID-19 Radiography dataset (https://www.kaggle.com/tawsifurrahman/covid19-radiography-database) and place the 3 class folders here.**
