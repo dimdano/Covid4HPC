@@ -48,7 +48,7 @@ git clone https://github.com/dimdano/Covid4HPC.git
 - Pull and run Vitis AI prebuilt docker (release 1.2.82 recommended) - Vitis AI.
 ```bash
 chmod +x docker_run.sh
-./docker_run.sh xilinx/vitis-ai:latest
+./docker_run.sh xilinx/vitis-ai-cpu:latest
 ```
 - Install Xilinx DPU IP for the Alveo U50. While inside docker run:
 ```bash
