@@ -12,19 +12,17 @@ limitations under the License.
 '''
 
 from ctypes import *
+from typing import List
 import cv2
 import numpy as np
-import runner
-import xir.graph
-import pathlib
-import xir.subgraph
+import vart
 import os
+import pathlib
+import xir
 import threading
 import time
 import sys
 import argparse
-
-DIVIDER = '-----------------------------------------'
 
 def preprocess_fn(image_path):
     '''
@@ -39,93 +37,87 @@ def preprocess_fn(image_path):
     return image
 
 
-def get_subgraph (g):
-    sub = []
-    root = g.get_root_subgraph()
-    sub = [ s for s in root.children
-            if s.metadata.get_attr_str ("device") == "DPU"]
-    return sub
+def get_child_subgraph_dpu(graph: "Graph") -> List["Subgraph"]:
+    assert graph is not None, "'graph' should not be None."
+    root_subgraph = graph.get_root_subgraph()
+    assert (root_subgraph is not None), "Failed to get root subgraph of input Graph object."
+    if root_subgraph.is_leaf:
+        return []
+    child_subgraphs = root_subgraph.toposort_child_subgraph()
+    assert child_subgraphs is not None and len(child_subgraphs) > 0
+    return [
+        cs
+        for cs in child_subgraphs
+        if cs.has_attr("device") and cs.get_attr("device").upper() == "DPU"
+    ]
+
 
 def runDPU(id,start,dpu,img):
 
     '''get tensor'''
     inputTensors = dpu.get_input_tensors()
     outputTensors = dpu.get_output_tensors()
-    outputHeight = outputTensors[0].dims[1]
-    #outputWidth = outputTensors[0].dims[2]
-    #outputChannel = outputTensors[0].dims[3]
-    outputWidth = 1
-    outputChannel = 1
-    outputSize = outputHeight*outputWidth*outputChannel
+    input_ndim = tuple(inputTensors[0].dims)
+    output_ndim = tuple(outputTensors[0].dims)
 
-    batchSize = inputTensors[0].dims[0]
+    batchSize = input_ndim[0]
+
     n_of_images = len(img)
-    
     count = 0
     write_index = start
     while count < n_of_images:
-
         if (count+batchSize<=n_of_images):
             runSize = batchSize
         else:
             runSize=n_of_images-count
-            
-        shapeIn = (runSize,) + tuple([inputTensors[0].dims[i] for i in range(inputTensors[0].ndim)][1:])
 
         '''prepare batch input/output '''
         outputData = []
         inputData = []
-        #outputData.append(np.empty((runSize,outputHeight,outputWidth,outputChannel), dtype = np.float32, order = 'C'))
-        outputData.append(np.empty((runSize,outputHeight), dtype = np.float32, order = 'C'))
-        inputData.append(np.empty((shapeIn), dtype = np.float32, order = 'C'))
+        inputData = [np.empty(input_ndim, dtype=np.float32, order="C")]
+        outputData = [np.empty(output_ndim, dtype=np.float32, order="C")]
 
         '''init input image to input buffer '''
         for j in range(runSize):
             imageRun = inputData[0]
-            imageRun[j,...] = img[(count+j)% n_of_images].reshape(inputTensors[0].dims[1],inputTensors[0].dims[2],inputTensors[0].dims[3])
+            imageRun[j, ...] = img[(count + j) % n_of_images].reshape(input_ndim[1:])
 
         '''run with batch '''
         job_id = dpu.execute_async(inputData,outputData)
         dpu.wait(job_id)
 
-        for j in range(len(outputData)):
-            outputData[j] = outputData[j].reshape(runSize, outputSize)
-
         '''store output vectors '''
         for j in range(runSize):
-            out_q[write_index] = outputData[0][j]
+            out_q[write_index] = np.argmax((outputData[0][j]))
             write_index += 1
         count = count + runSize
+
 
 def app(image_dir,threads,model):
 
     f = open('./results'+'_'+str(threads)+'.txt', 'w')
+
     listimage=os.listdir(image_dir)
-    listimage.sort()
     runTotal = len(listimage)
-    
-    print("Number of images: ", runTotal)
 
     global out_q
     out_q = [None] * runTotal
-    g = xir.graph.Graph.deserialize(pathlib.Path(model))
 
-    subgraphs = get_subgraph (g)
-
-    #assert len(subgraphs) == 1 # only one DPU kernel
+    g = xir.Graph.deserialize(model)
+    subgraphs = get_child_subgraph_dpu(g)
     all_dpu_runners = []
     for i in range(threads):
-        all_dpu_runners.append(runner.Runner(subgraphs[0], "run"))
+        all_dpu_runners.append(vart.Runner.create_runner(subgraphs[0], "run"))
 
     ''' preprocess images '''
-   
-
+    print('Pre-processing',runTotal,'images...')
     img = []
     for i in range(runTotal):
         path = os.path.join(image_dir,listimage[i])
         img.append(preprocess_fn(path))
 
     '''run threads '''
+    print('Starting',threads,'threads...')
     threadAll = []
     start=0
     for i in range(threads):
@@ -144,34 +136,31 @@ def app(image_dir,threads,model):
     for x in threadAll:
         x.join()
     time2 = time.time()
-    timetotal = time2-time1
-    
+    timetotal = time2 - time1
+
     fps = float(runTotal / timetotal)
-    print("FPS=%.2f, total frames = %.0f , time=%.4f seconds" %(fps,runTotal, timetotal))
+    print("Throughput=%.2f fps, total frames = %.0f, time=%.4f seconds" %(fps, runTotal, timetotal))
 
 
     ''' post-processing '''
     classes = ['COVID-19','NORMAL','Viral Pneumonia']  
+
     correct = 0
     wrong = 0
-    listPredictions = []
-    f.write('image file :\t predicted class :\t ground_truth :\t DPU output'+'\n')
+    print('output buffer length:',len(out_q))
+    
+    f.write('image file :\t\t predicted class :\t\t ground_truth'+'\n')
+     
     for i in range(len(out_q)):
-        argmax = np.argmax((out_q[i]))
-        prediction = classes[argmax]
-        ground_truth, _ = listimage[i].split('_')
-
-        f.write(listimage[i]+':\t'+prediction+':\t'+ground_truth+':\t'+str(out_q[i])+'\n')
-
+        prediction = classes[out_q[i]]
+        ground_truth, _ = listimage[i].split('_',1)
+        f.write(listimage[i]+':\t\t'+prediction+':\t\t'+ground_truth+'\n')
         if (ground_truth==prediction):
             correct += 1
         else:
             wrong += 1
-    accuracy = (1.0*correct)/len(out_q)
-    print('Correct:',correct,'Wrong:',wrong,'Accuracy:%.4f' %(accuracy))
-
-
-    f.close()
+    accuracy = correct/len(out_q)
+    print('Correct:%d, Wrong:%d, Accuracy:%.4f' %(correct,wrong,accuracy))
 
     return
 
@@ -182,32 +171,20 @@ def main():
 
   # construct the argument parser and parse the arguments
   ap = argparse.ArgumentParser()  
-  ap.add_argument('-d', '--image_dir',
-                  type=str,
-                  default='images',
-                  help='Path to folder of images. Default is images')  
-  ap.add_argument('-t', '--threads',
-                  type=int,
-                  default=1,
-                  help='Number of threads. Default is 1')
-  ap.add_argument('-m', '--model',
-                  type=str,
-                  default='model_dir/densenetx.xmodel',
-                  help='Path of xmodel file. Default is model_dir/densenetx.xmodel')
+  ap.add_argument('-d', '--image_dir', type=str, default='images', help='Path to folder of images. Default is images')  
+  ap.add_argument('-t', '--threads',   type=int, default=1,        help='Number of threads. Default is 1')
+  ap.add_argument('-m', '--model',     type=str, default='model_dir/densenetx.xmodel', help='Path of xmodel. Default is model_dir/densenetx.xmodel')
+
   args = ap.parse_args()  
   
-  print(DIVIDER)
-  print('Running on Alveo U50')
-  print(DIVIDER)
   print ('Command line options:')
   print (' --image_dir : ', args.image_dir)
   print (' --threads   : ', args.threads)
   print (' --model     : ', args.model)
-  print(DIVIDER)
-  
-  
+
   app(args.image_dir,args.threads,args.model)
 
 if __name__ == '__main__':
   main()
+
 
