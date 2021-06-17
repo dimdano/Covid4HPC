@@ -45,16 +45,16 @@ newgrp docker
 ```bash
 git clone https://github.com/dimdano/Covid4HPC.git
 ```
-- Pull and run Vitis AI prebuilt docker (release 1.2.82 recommended) - Vitis AI.
+- Pull and run Vitis AI prebuilt docker (release 1.3.411 recommended) - Vitis AI.
 ```bash
 chmod +x docker_run.sh
-./docker_run.sh xilinx/vitis-ai-cpu:latest
+./docker_run.sh xilinx/vitis-ai:1.3.411
 ```
 - Install Xilinx DPU IP for the Alveo U50. While inside docker run:
 ```bash
-wget https://www.xilinx.com/bin/public/openDownload?filename=alveo_xclbin-1.2.1.tar.gz -O alveo_xclbin-1.2.1.tar.gz
-tar xfz alveo_xclbin-1.2.1.tar.gz
-sudo cp alveo_xclbin-1.2.1/U50/6E300M/* /usr/lib
+wget https://www.xilinx.com/bin/public/openDownload?filename=alveo_xclbin-1.3.1.tar.gz -O alveo_xclbin-1.3.1.tar.gz
+tar xfz alveo_xclbin-1.3.1.tar.gz
+sudo cp alveo_xclbin-1.3.1/U50/6E300M/* /usr/lib
 ``` 
 - You can head to [FPGA-demo](#FPGA-demo) to test the ready-to-run application. For the other tutorials you will need to download COVID-19 Radiography dataset from [here](https://www.kaggle.com/tawsifurrahman/covid19-radiography-database). Then place the 3 class folders (Covid, Normal, Viral Pneumonia) inside the dataset folder of the repo.
 
@@ -101,7 +101,7 @@ source ./6_make_target.sh
   ```
 7. Go to `build/target/` folder and run application with:
 ```bash
-/usr/bin/python3 run_inference.py -m model_dir/fpga_model.xmodel -t 8
+/usr/bin/python3 run_inference.py -m model_dir/fpga_model.xmodel -t 6
   ```
 Note* The DPU runs at 300MhZ. If you experience issues with the FPGA becoming unstable, it might need reset. You can scale down the frequency to overcome these issues. For example run the following to reduce to 250Mhz:
 ```bash
@@ -110,9 +110,13 @@ Note* The DPU runs at 300MhZ. If you experience issues with the FPGA becoming un
  ```
  
  ## FPGA demo
- If you want to test the ready-to-run application head to [FPGA_demo/](FPGA_demo) folder and run the following command to test the CustomCNN model on FPGA:
- ```bash
- /usr/bin/python3 run_inference.py -m model_dir/CustomCNN.xmodel -t 8
+ If you want to test the ready-to-run application first conda activate vitis ai tensorflow package:
+  ```bash
+ conda activate vitis-ai-tensorflow
+  ```
+ Then head to [FPGA_demo/](FPGA_demo) folder and run the following command to test the CustomCNN model on FPGA:
+  ```bash
+ /usr/bin/python3 run_inference.py -m model_dir/CustomCNN.xmodel -t 6
  ```
 The Frames/Sec (FPS) and Accuracy achieved will be shown. Also, a .txt file will be generated with the predicted images. You can select the model to infer with -m option or the number of threads with -t option. (If you experience issues with FPGA see Note* )
 Output:
@@ -122,12 +126,12 @@ Running on Alveo U50
 -----------------------------------------
 Command line options:
  --image_dir :  images
- --threads   :  8
+ --threads   :  6
  --model     :  model_dir/fpga_model.xmodel
 -----------------------------------------
 Number of images:  727
-FPS=3606.41, total frames = 727 , time=0.2016 seconds
-Correct: 703 Wrong: 27 Accuracy:0.9628
+FPS=3778.39, total frames = 727 , time=0.2016 seconds
+Correct: 704 Wrong: 23 Accuracy:0.9684
 ```
  
 ## SW-evaluation
